@@ -1,0 +1,1724 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta
+    name="viewport"
+    content="width=device-width, initial-scale=1.0, viewport-fit=cover, user-scalable=no"
+  />
+
+  <title>Toastmaster&apos;s Room Energy Meter</title>
+
+  <meta name="apple-mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-title" content="Room Energy" />
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+  <meta name="theme-color" content="#b91c1c" />
+
+  <style>
+    :root {
+      --fg: #ffffff;
+      --meter-width: 0%;
+      --safe-top: env(safe-area-inset-top, 0px);
+      --safe-right: env(safe-area-inset-right, 0px);
+      --safe-bottom: env(safe-area-inset-bottom, 0px);
+      --safe-left: env(safe-area-inset-left, 0px);
+    }
+
+    * {
+      box-sizing: border-box;
+      -webkit-tap-highlight-color: transparent;
+    }
+
+    html,
+    body {
+      width: 100%;
+      height: 100%;
+      margin: 0;
+      overflow: hidden;
+      font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      background: #111827;
+      color: var(--fg);
+      touch-action: manipulation;
+    }
+
+    body {
+      transition:
+        background 520ms ease,
+        color 300ms ease;
+    }
+
+    body.zone-idle {
+      background:
+        radial-gradient(circle at 50% 30%, rgba(255,255,255,0.10), transparent 32%),
+        linear-gradient(135deg, #111827, #020617);
+    }
+
+    body.zone-low {
+      background:
+        radial-gradient(circle at 50% 34%, rgba(255,255,255,0.12), transparent 32%),
+        linear-gradient(135deg, #7f1d1d, #b91c1c, #450a0a);
+    }
+
+    body.zone-warming {
+      background:
+        radial-gradient(circle at 50% 34%, rgba(255,255,255,0.16), transparent 34%),
+        linear-gradient(135deg, #b91c1c 0%, #f59e0b 56%, #92400e 100%);
+    }
+
+    body.zone-getting {
+      background:
+        radial-gradient(circle at 50% 34%, rgba(255,255,255,0.17), transparent 34%),
+        linear-gradient(135deg, #f59e0b 0%, #84cc16 48%, #16a34a 100%);
+    }
+
+    body.zone-green {
+      background:
+        radial-gradient(circle at 50% 34%, rgba(255,255,255,0.22), transparent 35%),
+        linear-gradient(135deg, #14532d, #16a34a, #22c55e);
+    }
+
+    body.zone-too-much {
+      background:
+        radial-gradient(circle at 50% 34%, rgba(255,255,255,0.18), transparent 35%),
+        linear-gradient(135deg, #16a34a 0%, #f59e0b 38%, #b91c1c 76%, #450a0a 100%);
+    }
+
+    .app {
+      position: fixed;
+      inset: 0;
+      width: 100vw;
+      height: 100dvh;
+      min-height: 100vh;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      padding:
+        calc(18px + var(--safe-top))
+        calc(18px + var(--safe-right))
+        calc(18px + var(--safe-bottom))
+        calc(18px + var(--safe-left));
+    }
+
+    .stage {
+      position: relative;
+      width: min(94vw, 980px);
+      height: min(88dvh, 720px);
+      border-radius: 34px;
+      border: 1px solid rgba(255,255,255,0.24);
+      background: rgba(255,255,255,0.12);
+      box-shadow:
+        0 30px 90px rgba(0,0,0,0.34),
+        inset 0 0 90px rgba(255,255,255,0.10);
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      overflow: hidden;
+      transition:
+        transform 300ms ease,
+        box-shadow 520ms ease,
+        background-color 520ms ease;
+    }
+
+    body.zone-green .stage {
+      transform: scale(1.015);
+      box-shadow:
+        0 34px 100px rgba(0,0,0,0.36),
+        0 0 52px rgba(255,255,255,0.42),
+        inset 0 0 100px rgba(255,255,255,0.20);
+    }
+
+    .pulse-ring {
+      position: absolute;
+      width: min(62vw, 460px);
+      aspect-ratio: 1 / 1;
+      border-radius: 50%;
+      border: 4px solid rgba(255,255,255,0.18);
+      pointer-events: none;
+      opacity: 0.30;
+    }
+
+    body.zone-low .pulse-ring {
+      animation: pulseSlow 1.8s ease-in-out infinite;
+    }
+
+    body.zone-warming .pulse-ring {
+      animation: pulseMedium 1.35s ease-in-out infinite;
+    }
+
+    body.zone-getting .pulse-ring {
+      animation: pulseMedium 1.05s ease-in-out infinite;
+    }
+
+    body.zone-green .pulse-ring {
+      animation: pulseFast 0.9s ease-in-out infinite;
+    }
+
+    body.zone-too-much .pulse-ring {
+      animation: pulseAlert 0.75s ease-in-out infinite;
+    }
+
+    @keyframes pulseSlow {
+      0% { transform: scale(0.86); opacity: 0.14; }
+      50% { transform: scale(1.00); opacity: 0.28; }
+      100% { transform: scale(0.86); opacity: 0.14; }
+    }
+
+    @keyframes pulseMedium {
+      0% { transform: scale(0.84); opacity: 0.20; }
+      50% { transform: scale(1.08); opacity: 0.46; }
+      100% { transform: scale(0.84); opacity: 0.20; }
+    }
+
+    @keyframes pulseFast {
+      0% { transform: scale(0.82); opacity: 0.26; }
+      50% { transform: scale(1.13); opacity: 0.60; }
+      100% { transform: scale(0.82); opacity: 0.26; }
+    }
+
+    @keyframes pulseAlert {
+      0% { transform: scale(0.86); opacity: 0.22; }
+      50% { transform: scale(1.18); opacity: 0.62; }
+      100% { transform: scale(0.86); opacity: 0.22; }
+    }
+
+    .title {
+      position: relative;
+      z-index: 2;
+      font-size: clamp(17px, 3.2vw, 34px);
+      font-weight: 900;
+      letter-spacing: 0.06em;
+      text-transform: uppercase;
+      text-align: center;
+      opacity: 0.92;
+      margin-bottom: 16px;
+    }
+
+    .text-wrap {
+      position: relative;
+      z-index: 2;
+      width: 100%;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      opacity: 1;
+      transform: translateY(0) scale(1);
+      filter: blur(0);
+      will-change: opacity, transform, filter;
+      transition:
+        opacity 420ms ease,
+        transform 420ms cubic-bezier(0.2, 0.8, 0.2, 1),
+        filter 420ms ease;
+    }
+
+    .text-wrap.morph-out {
+      opacity: 0;
+      transform: translateY(18px) scale(0.97);
+      filter: blur(5px);
+    }
+
+    .text-wrap.morph-in {
+      opacity: 1;
+      transform: translateY(0) scale(1);
+      filter: blur(0);
+    }
+
+    .zone-label {
+      width: 94%;
+      text-align: center;
+      font-size: clamp(44px, 11vw, 122px);
+      line-height: 0.92;
+      font-weight: 950;
+      letter-spacing: -0.075em;
+      text-shadow: 0 12px 34px rgba(0,0,0,0.28);
+    }
+
+    .sub-label {
+      margin-top: 20px;
+      text-align: center;
+      font-size: clamp(16px, 3vw, 28px);
+      font-weight: 800;
+      opacity: 0.9;
+      width: 90%;
+    }
+
+    body.zone-green .text-wrap,
+    body.zone-too-much .text-wrap {
+      transform: scale(1.025);
+    }
+
+    .score-row {
+      position: relative;
+      z-index: 2;
+      width: min(78vw, 640px);
+      margin-top: 30px;
+    }
+
+    .score-meta {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      gap: 10px;
+      font-size: clamp(12px, 2vw, 16px);
+      font-weight: 800;
+      opacity: 0.86;
+      margin-bottom: 8px;
+    }
+
+    .meter-track {
+      width: 100%;
+      height: clamp(22px, 4.2vw, 34px);
+      border-radius: 999px;
+      overflow: hidden;
+      background: rgba(0,0,0,0.30);
+      border: 1px solid rgba(255,255,255,0.24);
+      box-shadow: inset 0 2px 12px rgba(0,0,0,0.22);
+    }
+
+    .meter-fill {
+      width: var(--meter-width);
+      height: 100%;
+      border-radius: 999px;
+      background: rgba(255,255,255,0.96);
+      box-shadow: 0 0 26px rgba(255,255,255,0.48);
+      transition: width 190ms ease-out;
+    }
+
+    .top-actions {
+      position: fixed;
+      z-index: 20;
+      top: calc(12px + var(--safe-top));
+      right: calc(12px + var(--safe-right));
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+
+    .bottom-actions {
+      position: fixed;
+      z-index: 20;
+      left: calc(12px + var(--safe-left));
+      right: calc(12px + var(--safe-right));
+      bottom: calc(12px + var(--safe-bottom));
+      display: flex;
+      justify-content: center;
+      gap: 8px;
+      pointer-events: none;
+    }
+
+    .bottom-actions button {
+      pointer-events: auto;
+    }
+
+    button,
+    input {
+      font: inherit;
+    }
+
+    button {
+      border: 1px solid rgba(255,255,255,0.28);
+      border-radius: 999px;
+      padding: 11px 15px;
+      background: rgba(5,10,20,0.62);
+      color: #ffffff;
+      font-weight: 900;
+      cursor: pointer;
+      backdrop-filter: blur(10px);
+      -webkit-backdrop-filter: blur(10px);
+      box-shadow: 0 10px 24px rgba(0,0,0,0.24);
+    }
+
+    button.primary {
+      background: rgba(255,255,255,0.94);
+      color: #111827;
+    }
+
+    button.danger {
+      background: rgba(127,29,29,0.88);
+      color: #ffffff;
+    }
+
+    button:active {
+      transform: translateY(1px) scale(0.99);
+    }
+
+    button:disabled {
+      opacity: 0.48;
+      cursor: not-allowed;
+    }
+
+    .settings {
+      position: fixed;
+      z-index: 30;
+      inset: 0;
+      display: none;
+      justify-content: flex-end;
+      background: rgba(0,0,0,0.38);
+    }
+
+    .settings.open {
+      display: flex;
+    }
+
+    .panel {
+      width: min(94vw, 500px);
+      height: 100%;
+      overflow-y: auto;
+      padding:
+        calc(18px + var(--safe-top))
+        calc(18px + var(--safe-right))
+        calc(18px + var(--safe-bottom))
+        18px;
+      background: rgba(8,12,22,0.96);
+      border-left: 1px solid rgba(255,255,255,0.18);
+      color: #ffffff;
+      box-shadow: -24px 0 70px rgba(0,0,0,0.40);
+    }
+
+    .panel h2 {
+      margin: 0 0 6px;
+      font-size: 25px;
+      letter-spacing: -0.035em;
+    }
+
+    .panel p {
+      margin: 8px 0;
+      color: rgba(255,255,255,0.72);
+      line-height: 1.45;
+      font-size: 14px;
+    }
+
+    .row {
+      display: flex;
+      align-items: center;
+      flex-wrap: wrap;
+      gap: 8px;
+    }
+
+    .between {
+      justify-content: space-between;
+    }
+
+    .card {
+      margin-top: 14px;
+      padding: 14px;
+      border-radius: 22px;
+      background: rgba(255,255,255,0.08);
+      border: 1px solid rgba(255,255,255,0.16);
+    }
+
+    .card-title {
+      font-size: 15px;
+      font-weight: 950;
+      margin-bottom: 8px;
+    }
+
+    .metric-grid {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 8px;
+      margin-top: 10px;
+    }
+
+    .metric {
+      padding: 10px;
+      border-radius: 16px;
+      background: rgba(0,0,0,0.24);
+      border: 1px solid rgba(255,255,255,0.10);
+    }
+
+    .metric small {
+      display: block;
+      color: rgba(255,255,255,0.62);
+      font-weight: 800;
+      margin-bottom: 4px;
+    }
+
+    .metric strong {
+      display: block;
+      font-size: 20px;
+      letter-spacing: -0.03em;
+    }
+
+    label {
+      display: block;
+      margin: 12px 0 6px;
+      color: rgba(255,255,255,0.82);
+      font-size: 13px;
+      font-weight: 900;
+    }
+
+    input[type="range"] {
+      width: 100%;
+    }
+
+    .checkbox-row {
+      display: flex;
+      align-items: flex-start;
+      gap: 10px;
+      margin-top: 16px;
+      padding: 12px;
+      border-radius: 16px;
+      background: rgba(0,0,0,0.20);
+      border: 1px solid rgba(255,255,255,0.12);
+    }
+
+    .checkbox-row input {
+      width: 22px;
+      height: 22px;
+      flex: 0 0 auto;
+      margin-top: 1px;
+      accent-color: #22c55e;
+    }
+
+    .checkbox-row span {
+      display: block;
+      font-size: 14px;
+      font-weight: 850;
+      line-height: 1.35;
+    }
+
+    .status {
+      margin-top: 10px;
+      font-size: 13px;
+      color: rgba(255,255,255,0.76);
+      line-height: 1.45;
+    }
+
+    .range-line {
+      height: 14px;
+      border-radius: 999px;
+      margin-top: 12px;
+      background:
+        linear-gradient(
+          90deg,
+          #b91c1c 0%,
+          #b91c1c var(--amber-low, 30%),
+          #b91c1c var(--amber-low, 30%),
+          #f59e0b var(--amber-high, 55%),
+          #16a34a var(--green-avg, 72%),
+          #16a34a var(--green-high, 88%),
+          #b91c1c 100%
+        );
+      border: 1px solid rgba(255,255,255,0.18);
+    }
+
+    .training-overlay {
+      position: fixed;
+      z-index: 40;
+      inset: 0;
+      display: none;
+      align-items: center;
+      justify-content: center;
+      padding: 24px;
+      background: rgba(0,0,0,0.74);
+      color: #ffffff;
+      text-align: center;
+    }
+
+    .training-overlay.open {
+      display: flex;
+    }
+
+    .training-box {
+      width: min(92vw, 600px);
+      border-radius: 30px;
+      padding: 26px;
+      background: rgba(17,24,39,0.97);
+      border: 1px solid rgba(255,255,255,0.20);
+      box-shadow: 0 24px 80px rgba(0,0,0,0.42);
+    }
+
+    .training-box h2 {
+      margin: 0 0 8px;
+      font-size: clamp(28px, 6vw, 54px);
+      letter-spacing: -0.05em;
+    }
+
+    .countdown {
+      font-size: clamp(48px, 14vw, 124px);
+      font-weight: 950;
+      line-height: 1;
+      letter-spacing: -0.08em;
+      margin: 10px 0;
+    }
+
+    .tiny {
+      font-size: 12px;
+      opacity: 0.68;
+    }
+
+    .install-note {
+      font-size: 12px;
+      opacity: 0.68;
+      margin-top: 10px;
+    }
+
+    @media (max-width: 640px) {
+      .stage {
+        width: 100%;
+        height: 82dvh;
+        border-radius: 28px;
+      }
+
+      .top-actions {
+        left: calc(12px + var(--safe-left));
+        justify-content: space-between;
+      }
+
+      .metric-grid {
+        grid-template-columns: 1fr;
+      }
+
+      .score-meta {
+        flex-direction: column;
+        align-items: stretch;
+        text-align: center;
+      }
+    }
+
+    @media (prefers-reduced-motion: reduce) {
+      *,
+      *::before,
+      *::after {
+        animation: none !important;
+        transition: none !important;
+      }
+    }
+  </style>
+</head>
+
+<body class="zone-idle">
+  <main class="app">
+    <section class="stage">
+      <div class="pulse-ring"></div>
+
+      <div class="title">TMOD Room Energy</div>
+
+      <div class="text-wrap" id="textWrap">
+        <div class="zone-label" id="zoneLabel">Ready?</div>
+        <div class="sub-label" id="subLabel">Train Silent, Amber, and Green. Then tap Run.</div>
+      </div>
+
+      <div class="score-row">
+        <div class="score-meta">
+          <span id="scoreText">Score 0</span>
+          <span id="dbText">Metric -60.0 dBFS</span>
+        </div>
+        <div class="meter-track">
+          <div class="meter-fill" id="meterFill"></div>
+        </div>
+      </div>
+    </section>
+  </main>
+
+  <div class="top-actions">
+    <button id="settingsBtn">☰ Train</button>
+    <button id="runBtn" class="primary">Run</button>
+  </div>
+
+  <div class="bottom-actions">
+    <button id="fullscreenBtn">Full Screen</button>
+    <button id="stopBtn" class="danger">Stop</button>
+  </div>
+
+  <aside class="settings" id="settings">
+    <div class="panel">
+      <div class="row between">
+        <div>
+          <h2>Training Mode</h2>
+          <p>Use this from the actual iPad location in the meeting room.</p>
+        </div>
+        <button id="closeSettingsBtn">Close</button>
+      </div>
+
+      <div class="card">
+        <div class="card-title">1. Microphone</div>
+        <p>Start microphone first. iPadOS needs this tap before audio analysis can begin.</p>
+        <div class="row">
+          <button id="micBtn" class="primary">Start Microphone</button>
+          <button id="testBtn">Test Mode</button>
+        </div>
+        <div class="status" id="micStatus">Microphone not started.</div>
+      </div>
+
+      <div class="card">
+        <div class="card-title">2. Train Silent Red Baseline</div>
+        <p>Ask everyone to stay silent for 10 seconds. This becomes the red lower baseline.</p>
+        <div class="row">
+          <button id="trainSilentBtn">Train Silent Red</button>
+        </div>
+
+        <div class="metric-grid">
+          <div class="metric">
+            <small>Silent average</small>
+            <strong id="silentAvgText">Not set</strong>
+          </div>
+          <div class="metric">
+            <small>Silent range</small>
+            <strong id="silentRangeText">Not set</strong>
+          </div>
+        </div>
+      </div>
+
+      <div class="card">
+        <div class="card-title">3. Train Amber Loudness</div>
+        <p>Ask for acceptable baseline applause or room energy for 6 seconds. First second is ignored.</p>
+        <div class="row">
+          <button id="trainAmberBtn">Train Amber</button>
+        </div>
+
+        <div class="metric-grid">
+          <div class="metric">
+            <small>Amber average</small>
+            <strong id="amberAvgText">Not set</strong>
+          </div>
+          <div class="metric">
+            <small>Amber low–high</small>
+            <strong id="amberRangeText">Not set</strong>
+          </div>
+        </div>
+      </div>
+
+      <div class="card">
+        <div class="card-title">4. Train Green Loudness</div>
+        <p>Ask for desired high-energy applause for 6 seconds. First second is ignored.</p>
+        <div class="row">
+          <button id="trainGreenBtn">Train Green</button>
+        </div>
+
+        <div class="metric-grid">
+          <div class="metric">
+            <small>Green average</small>
+            <strong id="greenAvgText">Not set</strong>
+          </div>
+          <div class="metric">
+            <small>Green low–high</small>
+            <strong id="greenRangeText">Not set</strong>
+          </div>
+        </div>
+      </div>
+
+      <div class="card">
+        <div class="card-title">5. Tuning</div>
+
+        <label for="rangeSlider">Range width / forgiveness</label>
+        <input id="rangeSlider" type="range" min="5" max="25" value="12" />
+        <div class="status">
+          Current range width: <strong id="rangeValueText">12</strong>.
+          Increase this if the meter becomes red too easily.
+        </div>
+
+        <label for="smoothSlider">Weighted moving average / visual smoothing</label>
+        <input id="smoothSlider" type="range" min="70" max="96" value="89" />
+        <div class="status">
+          Current smoothing: <strong id="smoothValueText">89</strong>%.
+          Higher is calmer; lower reacts faster.
+        </div>
+
+        <label for="holdSlider">Minimum message hold</label>
+        <input id="holdSlider" type="range" min="800" max="2500" step="100" value="1400" />
+        <div class="status">
+          Current hold: <strong id="holdValueText">1400</strong> ms.
+          Green has an additional reward hold.
+        </div>
+
+        <label class="checkbox-row">
+          <input id="tooMuchToggle" type="checkbox" checked />
+          <span>
+            Enable “Too Much” warning above Green.
+            <br />
+            <span style="font-weight:650; opacity:0.72;">
+              If unchecked, Green becomes the maximum cap and the screen stays on “There it is!”.
+            </span>
+          </span>
+        </label>
+
+        <div class="range-line" id="rangeLine"></div>
+
+        <div class="metric-grid">
+          <div class="metric">
+            <small>Live score</small>
+            <strong id="liveScoreText">0</strong>
+          </div>
+          <div class="metric">
+            <small>Live zone</small>
+            <strong id="liveZoneText">Idle</strong>
+          </div>
+          <div class="metric">
+            <small>Raw RMS</small>
+            <strong id="rmsText">0.0000</strong>
+          </div>
+          <div class="metric">
+            <small>dBFS metric</small>
+            <strong id="dbMetricText">-60.0</strong>
+          </div>
+        </div>
+      </div>
+
+      <div class="card">
+        <div class="card-title">6. Run</div>
+        <p>
+          Run mode uses the whole screen. Red means low energy or too much noise. Amber means warming up.
+          Green means your desired TMOD applause level.
+        </p>
+        <div class="row">
+          <button id="runFromPanelBtn" class="primary">Run Full Meter</button>
+          <button id="resetBtn" class="danger">Reset Training</button>
+        </div>
+
+        <div class="install-note">
+          iPad tip: open GitHub Pages in Safari → Share → Add to Home Screen. Keep the iPad charging.
+        </div>
+      </div>
+    </div>
+  </aside>
+
+  <div class="training-overlay" id="trainingOverlay">
+    <div class="training-box">
+      <h2 id="trainingTitle">Training</h2>
+      <div class="countdown" id="countdown">10</div>
+      <p id="trainingInstruction">Listening...</p>
+      <div class="meter-track" style="margin-top: 18px;">
+        <div class="meter-fill" id="trainingFill"></div>
+      </div>
+      <p class="tiny" id="trainingMetric">Score 0 | -60.0 dBFS</p>
+    </div>
+  </div>
+
+  <script>
+    (() => {
+      "use strict";
+
+      const STORAGE_KEY = "tmod-room-energy-meter-v6";
+
+      const SAMPLE_SECONDS = {
+        silent: 10,
+        amber: 6,
+        green: 6
+      };
+
+      const IGNORE_FIRST_MS = {
+        silent: 0,
+        amber: 1000,
+        green: 1000
+      };
+
+      const els = {
+        body: document.body,
+
+        textWrap: document.getElementById("textWrap"),
+        zoneLabel: document.getElementById("zoneLabel"),
+        subLabel: document.getElementById("subLabel"),
+        scoreText: document.getElementById("scoreText"),
+        dbText: document.getElementById("dbText"),
+        meterFill: document.getElementById("meterFill"),
+
+        settings: document.getElementById("settings"),
+        settingsBtn: document.getElementById("settingsBtn"),
+        closeSettingsBtn: document.getElementById("closeSettingsBtn"),
+
+        micBtn: document.getElementById("micBtn"),
+        micStatus: document.getElementById("micStatus"),
+        testBtn: document.getElementById("testBtn"),
+
+        trainSilentBtn: document.getElementById("trainSilentBtn"),
+        trainAmberBtn: document.getElementById("trainAmberBtn"),
+        trainGreenBtn: document.getElementById("trainGreenBtn"),
+
+        silentAvgText: document.getElementById("silentAvgText"),
+        silentRangeText: document.getElementById("silentRangeText"),
+        amberAvgText: document.getElementById("amberAvgText"),
+        amberRangeText: document.getElementById("amberRangeText"),
+        greenAvgText: document.getElementById("greenAvgText"),
+        greenRangeText: document.getElementById("greenRangeText"),
+
+        rangeSlider: document.getElementById("rangeSlider"),
+        rangeValueText: document.getElementById("rangeValueText"),
+        smoothSlider: document.getElementById("smoothSlider"),
+        smoothValueText: document.getElementById("smoothValueText"),
+        holdSlider: document.getElementById("holdSlider"),
+        holdValueText: document.getElementById("holdValueText"),
+        tooMuchToggle: document.getElementById("tooMuchToggle"),
+
+        liveScoreText: document.getElementById("liveScoreText"),
+        liveZoneText: document.getElementById("liveZoneText"),
+        rmsText: document.getElementById("rmsText"),
+        dbMetricText: document.getElementById("dbMetricText"),
+        rangeLine: document.getElementById("rangeLine"),
+
+        runBtn: document.getElementById("runBtn"),
+        runFromPanelBtn: document.getElementById("runFromPanelBtn"),
+        fullscreenBtn: document.getElementById("fullscreenBtn"),
+        stopBtn: document.getElementById("stopBtn"),
+        resetBtn: document.getElementById("resetBtn"),
+
+        trainingOverlay: document.getElementById("trainingOverlay"),
+        trainingTitle: document.getElementById("trainingTitle"),
+        countdown: document.getElementById("countdown"),
+        trainingInstruction: document.getElementById("trainingInstruction"),
+        trainingFill: document.getElementById("trainingFill"),
+        trainingMetric: document.getElementById("trainingMetric")
+      };
+
+      const state = {
+        audioContext: null,
+        analyser: null,
+        stream: null,
+        data: null,
+        rafId: null,
+        wakeLock: null,
+
+        micReady: false,
+        running: false,
+        testMode: false,
+        training: false,
+
+        rawRms: 0,
+        db: -60,
+        instantScore: 0,
+        displayScore: 0,
+
+        silentAvg: null,
+        silentStd: null,
+        amberAvg: null,
+        amberStd: null,
+        greenAvg: null,
+        greenStd: null,
+
+        rangeWidth: 12,
+        smoothing: 0.89,
+
+        silentLow: 0,
+        silentHigh: 12,
+        amberLow: 28,
+        amberAvgLine: 40,
+        amberHigh: 55,
+        greenLow: 60,
+        greenAvgLine: 72,
+        greenHigh: 88,
+
+        enableTooMuch: true,
+
+        displayedZone: null,
+        candidateZone: null,
+        candidateSince: 0,
+        lastMessageChangeAt: 0,
+        greenHoldUntil: 0,
+
+        promoteConfirmMs: 180,
+        demoteConfirmMs: 1100,
+        messageMinHoldMs: 1400,
+        greenRewardHoldMs: 4200,
+
+        lastRenderedLabel: "",
+        lastRenderedSub: "",
+        pendingLabel: null,
+        pendingSub: null,
+        isMorphing: false,
+        morphTimer1: null,
+        morphTimer2: null,
+        morphTimer3: null
+      };
+
+      function init() {
+        loadState();
+        bindEvents();
+        recalcRanges();
+        updateTrainingText();
+        updateDisplay();
+
+        if (hasFullTraining()) {
+          setImmediateText("Ready", "Tap Run when your session begins.");
+        }
+      }
+
+      function loadState() {
+        try {
+          const saved = JSON.parse(localStorage.getItem(STORAGE_KEY) || "{}");
+
+          if (Number.isFinite(saved.silentAvg)) state.silentAvg = saved.silentAvg;
+          if (Number.isFinite(saved.silentStd)) state.silentStd = saved.silentStd;
+
+          if (Number.isFinite(saved.amberAvg)) state.amberAvg = saved.amberAvg;
+          if (Number.isFinite(saved.amberStd)) state.amberStd = saved.amberStd;
+
+          if (Number.isFinite(saved.greenAvg)) state.greenAvg = saved.greenAvg;
+          if (Number.isFinite(saved.greenStd)) state.greenStd = saved.greenStd;
+
+          if (Number.isFinite(saved.rangeWidth)) state.rangeWidth = saved.rangeWidth;
+          if (Number.isFinite(saved.smoothing)) state.smoothing = saved.smoothing;
+          if (Number.isFinite(saved.messageMinHoldMs)) state.messageMinHoldMs = saved.messageMinHoldMs;
+
+          if (typeof saved.enableTooMuch === "boolean") {
+            state.enableTooMuch = saved.enableTooMuch;
+          }
+        } catch (_) {}
+
+        els.rangeSlider.value = String(state.rangeWidth);
+        els.smoothSlider.value = String(Math.round(state.smoothing * 100));
+        els.holdSlider.value = String(state.messageMinHoldMs);
+        els.tooMuchToggle.checked = state.enableTooMuch;
+      }
+
+      function saveState() {
+        const payload = {
+          silentAvg: state.silentAvg,
+          silentStd: state.silentStd,
+          amberAvg: state.amberAvg,
+          amberStd: state.amberStd,
+          greenAvg: state.greenAvg,
+          greenStd: state.greenStd,
+          rangeWidth: state.rangeWidth,
+          smoothing: state.smoothing,
+          messageMinHoldMs: state.messageMinHoldMs,
+          enableTooMuch: state.enableTooMuch
+        };
+
+        localStorage.setItem(STORAGE_KEY, JSON.stringify(payload));
+      }
+
+      async function startMic() {
+        if (state.micReady) return true;
+
+        if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+          setMicStatus("This browser does not support microphone access.");
+          return false;
+        }
+
+        try {
+          setMicStatus("Requesting microphone permission...");
+
+          const stream = await navigator.mediaDevices.getUserMedia({
+            audio: {
+              echoCancellation: false,
+              noiseSuppression: false,
+              autoGainControl: false
+            },
+            video: false
+          });
+
+          const AudioContextClass = window.AudioContext || window.webkitAudioContext;
+          const audioContext = new AudioContextClass();
+
+          if (audioContext.state === "suspended") {
+            await audioContext.resume();
+          }
+
+          const source = audioContext.createMediaStreamSource(stream);
+          const analyser = audioContext.createAnalyser();
+
+          analyser.fftSize = 1024;
+          analyser.smoothingTimeConstant = 0.12;
+
+          source.connect(analyser);
+
+          state.stream = stream;
+          state.audioContext = audioContext;
+          state.analyser = analyser;
+          state.data = new Uint8Array(analyser.fftSize);
+          state.micReady = true;
+
+          setMicStatus("Microphone active. Train Silent, Amber, and Green.");
+          startLoop();
+          requestWakeLock();
+
+          return true;
+        } catch (err) {
+          console.error(err);
+          setMicStatus("Microphone failed or permission was denied.");
+          return false;
+        }
+      }
+
+      function startLoop() {
+        if (state.rafId) return;
+
+        const loop = () => {
+          readAudio();
+          updateDisplay();
+          state.rafId = requestAnimationFrame(loop);
+        };
+
+        state.rafId = requestAnimationFrame(loop);
+      }
+
+      function readAudio() {
+        if (!state.analyser || !state.data) return;
+
+        state.analyser.getByteTimeDomainData(state.data);
+
+        let sumSquares = 0;
+
+        for (let i = 0; i < state.data.length; i++) {
+          const centered = (state.data[i] - 128) / 128;
+          sumSquares += centered * centered;
+        }
+
+        const rms = Math.sqrt(sumSquares / state.data.length);
+        const db = 20 * Math.log10(Math.max(rms, 0.000001));
+        const clampedDb = clamp(db, -60, 0);
+
+        const linear = (clampedDb + 60) / 60;
+        const score = Math.pow(clamp(linear, 0, 1), 0.72) * 100;
+
+        state.rawRms = rms;
+        state.db = clampedDb;
+        state.instantScore = score;
+
+        const keep = state.smoothing;
+        state.displayScore = state.displayScore * keep + score * (1 - keep);
+      }
+
+      async function train(kind) {
+        const ok = await startMic();
+        if (!ok) return;
+
+        state.training = true;
+
+        const sampleSeconds = SAMPLE_SECONDS[kind];
+        const sampleMs = sampleSeconds * 1000;
+        const ignoreFirstMs = IGNORE_FIRST_MS[kind];
+
+        const samples = [];
+        let remaining = sampleSeconds;
+        const startedAt = performance.now();
+
+        const labels = {
+          silent: {
+            title: "Train Silent Red",
+            instruction: "Ask everyone to stay silent. Capturing the red baseline."
+          },
+          amber: {
+            title: "Train Amber",
+            instruction: "Clap at acceptable baseline energy. First second is ignored."
+          },
+          green: {
+            title: "Train Green",
+            instruction: "Clap at desired high-energy level. First second is ignored."
+          }
+        };
+
+        els.trainingTitle.textContent = labels[kind].title;
+        els.trainingInstruction.textContent = labels[kind].instruction;
+        els.countdown.textContent = String(remaining);
+        els.trainingOverlay.classList.add("open");
+
+        const countdownTimer = setInterval(() => {
+          remaining -= 1;
+          els.countdown.textContent = String(Math.max(remaining, 0));
+        }, 1000);
+
+        const sampler = setInterval(() => {
+          const elapsed = performance.now() - startedAt;
+
+          if (elapsed >= ignoreFirstMs) {
+            samples.push(state.displayScore);
+          }
+        }, 100);
+
+        await sleep(sampleMs);
+
+        clearInterval(countdownTimer);
+        clearInterval(sampler);
+
+        state.training = false;
+        els.trainingOverlay.classList.remove("open");
+
+        const cleaned = trimSamples(samples);
+        const avg = average(cleaned);
+        const std = standardDeviation(cleaned, avg);
+
+        if (kind === "silent") {
+          state.silentAvg = avg;
+          state.silentStd = std;
+          setMicStatus(`Silent red trained. Average ${avg.toFixed(1)}. This is your lower red baseline.`);
+        }
+
+        if (kind === "amber") {
+          state.amberAvg = avg;
+          state.amberStd = std;
+
+          if (Number.isFinite(state.silentAvg) && avg <= state.silentAvg + 4) {
+            setMicStatus(
+              `Amber average ${avg.toFixed(1)} is too close to silent red ${state.silentAvg.toFixed(1)}. Retrain Amber louder.`
+            );
+          } else {
+            setMicStatus(`Amber trained. Average ${avg.toFixed(1)} with range shown below.`);
+          }
+        }
+
+        if (kind === "green") {
+          state.greenAvg = avg;
+          state.greenStd = std;
+
+          if (Number.isFinite(state.amberAvg) && avg <= state.amberAvg + 4) {
+            setMicStatus(
+              `Green average ${avg.toFixed(1)} is too close to Amber ${state.amberAvg.toFixed(1)}. Retrain Green louder.`
+            );
+          } else {
+            setMicStatus(`Green trained. Average ${avg.toFixed(1)} with range shown below.`);
+          }
+        }
+
+        recalcRanges();
+        resetZoneStability();
+        saveState();
+        updateTrainingText();
+      }
+
+      function recalcRanges() {
+        const width = state.rangeWidth;
+
+        const silentAvg = Number.isFinite(state.silentAvg) ? state.silentAvg : 8;
+        const amberAvg = Number.isFinite(state.amberAvg) ? state.amberAvg : 40;
+        const greenAvg = Number.isFinite(state.greenAvg) ? state.greenAvg : 72;
+
+        state.silentLow = 0;
+        state.silentHigh = clamp(silentAvg + Math.max(4, width * 0.50), 0, 100);
+
+        state.amberAvgLine = clamp(amberAvg, 0, 100);
+        state.greenAvgLine = clamp(greenAvg, 0, 100);
+
+        state.amberLow = clamp(amberAvg - width, state.silentHigh, 100);
+        state.amberHigh = clamp(amberAvg + width, state.amberLow + 1, 100);
+
+        state.greenLow = clamp(greenAvg - width, 0, 100);
+        state.greenHigh = clamp(greenAvg + width, state.greenLow + 1, 100);
+
+        updateRangeVisual();
+      }
+
+      function getRawZone(score) {
+        if (!hasFullTraining()) {
+          return {
+            key: "idle",
+            rank: 0,
+            className: "zone-idle",
+            label: "Train First",
+            sub: "Capture Silent Red, Amber, and Green samples.",
+            name: "Idle"
+          };
+        }
+
+        if (score < state.amberLow) {
+          return {
+            key: "low",
+            rank: 1,
+            className: "zone-low",
+            label: "Low Energy",
+            sub: "Red zone. Build the room energy.",
+            name: "Low Energy / Red"
+          };
+        }
+
+        if (score >= state.amberLow && score <= state.amberHigh) {
+          return {
+            key: "warming",
+            rank: 2,
+            className: "zone-warming",
+            label: "Warming Up",
+            sub: "Good. Keep building the applause.",
+            name: "Warming Up / Red + Amber"
+          };
+        }
+
+        if (score > state.amberHigh && score < state.greenAvgLine) {
+          return {
+            key: "getting",
+            rank: 3,
+            className: "zone-getting",
+            label: "Getting There",
+            sub: "Almost at the Green target.",
+            name: "Getting There / Amber + Green"
+          };
+        }
+
+        if (score >= state.greenAvgLine && score <= state.greenHigh) {
+          return {
+            key: "green",
+            rank: 4,
+            className: "zone-green",
+            label: "There it is!",
+            sub: "Excellent Toastmasters energy.",
+            name: "There it is / Green"
+          };
+        }
+
+        if (score > state.greenHigh) {
+          if (state.enableTooMuch) {
+            return {
+              key: "too-much",
+              rank: 5,
+              className: "zone-too-much",
+              label: "Too Much",
+              sub: "Above the Green high limit. Bring it back slightly.",
+              name: "Too Much / Green + Red"
+            };
+          }
+
+          return {
+            key: "green",
+            rank: 4,
+            className: "zone-green",
+            label: "There it is!",
+            sub: "Excellent Toastmasters energy.",
+            name: "There it is / Green capped"
+          };
+        }
+
+        return {
+          key: "getting",
+          rank: 3,
+          className: "zone-getting",
+          label: "Getting There",
+          sub: "Almost at the Green target.",
+          name: "Getting There / Amber + Green"
+        };
+      }
+
+      function getStableZone(rawZone) {
+        const now = performance.now();
+
+        if (!state.displayedZone) {
+          state.displayedZone = rawZone;
+          state.candidateZone = null;
+          state.candidateSince = now;
+          state.lastMessageChangeAt = now;
+
+          if (rawZone.key === "green") {
+            state.greenHoldUntil = now + state.greenRewardHoldMs;
+          }
+
+          return rawZone;
+        }
+
+        if (
+          state.displayedZone.key === "green" &&
+          now < state.greenHoldUntil &&
+          rawZone.key !== "too-much"
+        ) {
+          return state.displayedZone;
+        }
+
+        if (rawZone.key === state.displayedZone.key) {
+          state.candidateZone = null;
+          state.candidateSince = now;
+          return state.displayedZone;
+        }
+
+        const movingUp = rawZone.rank > state.displayedZone.rank;
+        const movingDown = rawZone.rank < state.displayedZone.rank;
+
+        const requiredConfirmMs = movingUp
+          ? state.promoteConfirmMs
+          : state.demoteConfirmMs;
+
+        if (!state.candidateZone || state.candidateZone.key !== rawZone.key) {
+          state.candidateZone = rawZone;
+          state.candidateSince = now;
+          return state.displayedZone;
+        }
+
+        const candidateAge = now - state.candidateSince;
+        const currentMessageAge = now - state.lastMessageChangeAt;
+
+        const canPromote =
+          movingUp &&
+          candidateAge >= requiredConfirmMs;
+
+        const canDemote =
+          movingDown &&
+          candidateAge >= requiredConfirmMs &&
+          currentMessageAge >= state.messageMinHoldMs;
+
+        const canMoveSideways =
+          !movingUp &&
+          !movingDown &&
+          candidateAge >= requiredConfirmMs;
+
+        if (canPromote || canDemote || canMoveSideways) {
+          state.displayedZone = rawZone;
+          state.candidateZone = null;
+          state.candidateSince = now;
+          state.lastMessageChangeAt = now;
+
+          if (rawZone.key === "green") {
+            state.greenHoldUntil = now + state.greenRewardHoldMs;
+          }
+
+          return rawZone;
+        }
+
+        return state.displayedZone;
+      }
+
+      function updateDisplay() {
+        const score = clamp(state.displayScore, 0, 100);
+        const rawZone = getRawZone(score);
+        const stableZone = getStableZone(rawZone);
+
+        document.documentElement.style.setProperty("--meter-width", `${score.toFixed(1)}%`);
+        els.meterFill.style.width = `${score.toFixed(1)}%`;
+
+        els.body.classList.remove(
+          "zone-idle",
+          "zone-low",
+          "zone-warming",
+          "zone-getting",
+          "zone-green",
+          "zone-too-much"
+        );
+
+        els.body.classList.add(rawZone.className);
+
+        if (state.running || state.testMode) {
+          setMorphedText(stableZone.label, stableZone.sub);
+        }
+
+        els.scoreText.textContent = `Score ${Math.round(score)}`;
+        els.dbText.textContent = `Metric ${state.db.toFixed(1)} dBFS`;
+
+        els.liveScoreText.textContent = String(Math.round(score));
+        els.liveZoneText.textContent = stableZone.name;
+        els.rmsText.textContent = state.rawRms.toFixed(4);
+        els.dbMetricText.textContent = state.db.toFixed(1);
+
+        if (state.training) {
+          els.trainingFill.style.width = `${score.toFixed(1)}%`;
+          els.trainingMetric.textContent =
+            `Score ${Math.round(score)} | ${state.db.toFixed(1)} dBFS | RMS ${state.rawRms.toFixed(4)}`;
+        }
+      }
+
+      function setImmediateText(label, sub) {
+        clearMorphTimers();
+
+        state.isMorphing = false;
+        state.pendingLabel = null;
+        state.pendingSub = null;
+
+        els.textWrap.classList.remove("morph-out", "morph-in");
+
+        els.zoneLabel.textContent = label;
+        els.subLabel.textContent = sub;
+
+        state.lastRenderedLabel = label;
+        state.lastRenderedSub = sub;
+      }
+
+      function setMorphedText(label, sub) {
+        if (state.lastRenderedLabel === label && state.lastRenderedSub === sub) {
+          return;
+        }
+
+        state.pendingLabel = label;
+        state.pendingSub = sub;
+
+        if (state.isMorphing) {
+          return;
+        }
+
+        runTextMorph();
+      }
+
+      function runTextMorph() {
+        if (!state.pendingLabel || !state.pendingSub) {
+          return;
+        }
+
+        state.isMorphing = true;
+
+        const nextLabel = state.pendingLabel;
+        const nextSub = state.pendingSub;
+
+        state.pendingLabel = null;
+        state.pendingSub = null;
+
+        clearMorphTimers();
+
+        els.textWrap.classList.remove("morph-in");
+        els.textWrap.classList.add("morph-out");
+
+        state.morphTimer1 = setTimeout(() => {
+          els.zoneLabel.textContent = nextLabel;
+          els.subLabel.textContent = nextSub;
+
+          state.lastRenderedLabel = nextLabel;
+          state.lastRenderedSub = nextSub;
+
+          els.textWrap.classList.remove("morph-out");
+
+          void els.textWrap.offsetWidth;
+
+          els.textWrap.classList.add("morph-in");
+
+          state.morphTimer2 = setTimeout(() => {
+            els.textWrap.classList.remove("morph-in");
+            state.isMorphing = false;
+
+            if (
+              state.pendingLabel &&
+              state.pendingSub &&
+              (
+                state.pendingLabel !== state.lastRenderedLabel ||
+                state.pendingSub !== state.lastRenderedSub
+              )
+            ) {
+              state.morphTimer3 = setTimeout(runTextMorph, 40);
+            }
+          }, 460);
+        }, 260);
+      }
+
+      function clearMorphTimers() {
+        clearTimeout(state.morphTimer1);
+        clearTimeout(state.morphTimer2);
+        clearTimeout(state.morphTimer3);
+
+        state.morphTimer1 = null;
+        state.morphTimer2 = null;
+        state.morphTimer3 = null;
+      }
+
+      function updateTrainingText() {
+        els.rangeValueText.textContent = String(state.rangeWidth);
+        els.smoothValueText.textContent = String(Math.round(state.smoothing * 100));
+        els.holdValueText.textContent = String(state.messageMinHoldMs);
+        els.tooMuchToggle.checked = state.enableTooMuch;
+
+        els.silentAvgText.textContent =
+          Number.isFinite(state.silentAvg) ? state.silentAvg.toFixed(1) : "Not set";
+
+        els.silentRangeText.textContent =
+          Number.isFinite(state.silentAvg)
+            ? `${state.silentLow.toFixed(0)}–${state.silentHigh.toFixed(0)}`
+            : "Not set";
+
+        els.amberAvgText.textContent =
+          Number.isFinite(state.amberAvg) ? state.amberAvg.toFixed(1) : "Not set";
+
+        els.amberRangeText.textContent =
+          Number.isFinite(state.amberAvg)
+            ? `${state.amberLow.toFixed(0)}–${state.amberHigh.toFixed(0)}`
+            : "Not set";
+
+        els.greenAvgText.textContent =
+          Number.isFinite(state.greenAvg) ? state.greenAvg.toFixed(1) : "Not set";
+
+        els.greenRangeText.textContent =
+          Number.isFinite(state.greenAvg)
+            ? `${state.greenAvgLine.toFixed(0)}–${state.greenHigh.toFixed(0)}`
+            : "Not set";
+      }
+
+      function updateRangeVisual() {
+        els.rangeLine.style.setProperty("--amber-low", `${state.amberLow}%`);
+        els.rangeLine.style.setProperty("--amber-high", `${state.amberHigh}%`);
+        els.rangeLine.style.setProperty("--green-avg", `${state.greenAvgLine}%`);
+        els.rangeLine.style.setProperty("--green-high", `${state.greenHigh}%`);
+      }
+
+      function hasFullTraining() {
+        return (
+          Number.isFinite(state.silentAvg) &&
+          Number.isFinite(state.amberAvg) &&
+          Number.isFinite(state.greenAvg)
+        );
+      }
+
+      function resetZoneStability() {
+        state.displayedZone = null;
+        state.candidateZone = null;
+        state.candidateSince = 0;
+        state.lastMessageChangeAt = 0;
+        state.greenHoldUntil = 0;
+      }
+
+      async function runMode() {
+        const ok = await startMic();
+        if (!ok) return;
+
+        state.running = true;
+        state.testMode = false;
+        els.settings.classList.remove("open");
+
+        resetZoneStability();
+
+        if (!hasFullTraining()) {
+          setImmediateText("Train First", "Train Silent Red, Amber, and Green before Run mode.");
+        }
+
+        requestWakeLock();
+      }
+
+      async function testMode() {
+        const ok = await startMic();
+        if (!ok) return;
+
+        state.testMode = true;
+        state.running = false;
+
+        resetZoneStability();
+        setImmediateText("Test Mode", "Check whether Red, Amber, and Green feel accurate.");
+      }
+
+      function stopMode() {
+        state.running = false;
+        state.testMode = false;
+        state.displayScore = 0;
+
+        resetZoneStability();
+        setImmediateText("Stopped", "Tap Run to start again.");
+
+        updateDisplay();
+      }
+
+      function resetTraining() {
+        const yes = confirm("Reset Silent, Amber, and Green training?");
+        if (!yes) return;
+
+        state.silentAvg = null;
+        state.silentStd = null;
+        state.amberAvg = null;
+        state.amberStd = null;
+        state.greenAvg = null;
+        state.greenStd = null;
+
+        localStorage.removeItem(STORAGE_KEY);
+
+        recalcRanges();
+        resetZoneStability();
+        updateTrainingText();
+
+        setImmediateText("Ready?", "Training reset. Train Silent, Amber, and Green again.");
+        setMicStatus("Training reset.");
+      }
+
+      function bindEvents() {
+        els.settingsBtn.addEventListener("click", () => {
+          els.settings.classList.add("open");
+        });
+
+        els.closeSettingsBtn.addEventListener("click", () => {
+          els.settings.classList.remove("open");
+        });
+
+        els.micBtn.addEventListener("click", startMic);
+        els.testBtn.addEventListener("click", testMode);
+
+        els.trainSilentBtn.addEventListener("click", () => train("silent"));
+        els.trainAmberBtn.addEventListener("click", () => train("amber"));
+        els.trainGreenBtn.addEventListener("click", () => train("green"));
+
+        els.runBtn.addEventListener("click", runMode);
+        els.runFromPanelBtn.addEventListener("click", runMode);
+
+        els.stopBtn.addEventListener("click", stopMode);
+        els.resetBtn.addEventListener("click", resetTraining);
+
+        els.fullscreenBtn.addEventListener("click", requestFullscreen);
+
+        els.rangeSlider.addEventListener("input", () => {
+          state.rangeWidth = Number(els.rangeSlider.value);
+          recalcRanges();
+          resetZoneStability();
+          saveState();
+          updateTrainingText();
+        });
+
+        els.smoothSlider.addEventListener("input", () => {
+          state.smoothing = Number(els.smoothSlider.value) / 100;
+          saveState();
+          updateTrainingText();
+        });
+
+        els.holdSlider.addEventListener("input", () => {
+          state.messageMinHoldMs = Number(els.holdSlider.value);
+          saveState();
+          updateTrainingText();
+        });
+
+        els.tooMuchToggle.addEventListener("change", () => {
+          state.enableTooMuch = els.tooMuchToggle.checked;
+          resetZoneStability();
+          saveState();
+          updateTrainingText();
+        });
+
+        document.addEventListener("visibilitychange", () => {
+          if (document.visibilityState === "visible") {
+            requestWakeLock();
+
+            if (state.audioContext && state.audioContext.state === "suspended") {
+              state.audioContext.resume().catch(() => {});
+            }
+          }
+        });
+      }
+
+      async function requestFullscreen() {
+        const el = document.documentElement;
+
+        try {
+          if (el.requestFullscreen) {
+            await el.requestFullscreen();
+          } else if (el.webkitRequestFullscreen) {
+            await el.webkitRequestFullscreen();
+          }
+        } catch (_) {}
+      }
+
+      async function requestWakeLock() {
+        if (!("wakeLock" in navigator)) return;
+
+        try {
+          state.wakeLock = await navigator.wakeLock.request("screen");
+        } catch (_) {}
+      }
+
+      function setMicStatus(text) {
+        els.micStatus.textContent = text;
+      }
+
+      function trimSamples(samples) {
+        const valid = samples.filter(Number.isFinite);
+
+        if (valid.length < 10) return valid;
+
+        const sorted = [...valid].sort((a, b) => a - b);
+        const cut = Math.floor(sorted.length * 0.10);
+
+        return sorted.slice(cut, sorted.length - cut);
+      }
+
+      function average(arr) {
+        if (!arr.length) return 0;
+        return arr.reduce((sum, value) => sum + value, 0) / arr.length;
+      }
+
+      function standardDeviation(arr, avg) {
+        if (!arr.length) return 0;
+
+        const variance =
+          arr.reduce((sum, value) => {
+            const diff = value - avg;
+            return sum + diff * diff;
+          }, 0) / arr.length;
+
+        return Math.sqrt(variance);
+      }
+
+      function sleep(ms) {
+        return new Promise(resolve => setTimeout(resolve, ms));
+      }
+
+      function clamp(value, min, max) {
+        return Math.min(max, Math.max(min, value));
+      }
+
+      init();
+    })();
+  </script>
+</body>
+</html>
