@@ -452,6 +452,41 @@
       width: 100%;
     }
 
+    input[type="number"] {
+      width: 100%;
+      border: 1px solid rgba(255,255,255,0.20);
+      border-radius: 14px;
+      padding: 10px 11px;
+      background: rgba(0,0,0,0.28);
+      color: #ffffff;
+      font-weight: 900;
+      outline: none;
+    }
+
+    input[type="number"]:focus {
+      border-color: rgba(255,255,255,0.48);
+      box-shadow: 0 0 0 3px rgba(255,255,255,0.10);
+    }
+
+    .number-grid {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 10px;
+      margin-top: 10px;
+    }
+
+    .number-grid label {
+      margin: 0;
+    }
+
+    .number-grid span {
+      display: block;
+      margin-bottom: 6px;
+      color: rgba(255,255,255,0.78);
+      font-size: 12px;
+      font-weight: 900;
+    }
+
     .checkbox-row {
       display: flex;
       align-items: flex-start;
@@ -637,6 +672,7 @@
         <p>Start microphone first. iPadOS needs this tap before audio analysis can begin.</p>
         <div class="row">
           <button id="micBtn" class="primary">Start Microphone</button>
+          <button id="reconnectMicBtn">Reconnect Mic</button>
           <button id="testBtn">Test Mode</button>
         </div>
         <div class="status" id="micStatus">Microphone not started.</div>
@@ -734,6 +770,40 @@
           </span>
         </label>
 
+        <div class="card" style="margin-top: 16px; background: rgba(0,0,0,0.18);">
+          <div class="card-title">Manual loudness range labels</div>
+          <p>These are the saved score thresholds used for Low, Medium, and High labels. They are derived from the live dBFS metric but shown on the app&apos;s 0–100 loudness score scale.</p>
+
+          <div class="number-grid">
+            <label>
+              <span>Low ends at</span>
+              <input id="lowMaxInput" type="number" min="0" max="100" step="1" inputmode="numeric" />
+            </label>
+            <label>
+              <span>Medium starts at</span>
+              <input id="mediumMinInput" type="number" min="0" max="100" step="1" inputmode="numeric" />
+            </label>
+            <label>
+              <span>Medium ends at</span>
+              <input id="mediumMaxInput" type="number" min="0" max="100" step="1" inputmode="numeric" />
+            </label>
+            <label>
+              <span>High starts at</span>
+              <input id="highMinInput" type="number" min="0" max="100" step="1" inputmode="numeric" />
+            </label>
+            <label>
+              <span>High max / cap</span>
+              <input id="highMaxInput" type="number" min="0" max="100" step="1" inputmode="numeric" />
+            </label>
+            <label>
+              <span>&nbsp;</span>
+              <button id="autoRangesBtn" type="button">Use Trained Ranges</button>
+            </label>
+          </div>
+
+          <div class="status">Saved on this device. Adjust after training if the labels feel too strict or too easy.</div>
+        </div>
+
         <div class="range-line" id="rangeLine"></div>
 
         <div class="metric-grid">
@@ -819,6 +889,7 @@
         closeSettingsBtn: document.getElementById("closeSettingsBtn"),
 
         micBtn: document.getElementById("micBtn"),
+        reconnectMicBtn: document.getElementById("reconnectMicBtn"),
         micStatus: document.getElementById("micStatus"),
         testBtn: document.getElementById("testBtn"),
 
@@ -840,6 +911,12 @@
         holdSlider: document.getElementById("holdSlider"),
         holdValueText: document.getElementById("holdValueText"),
         tooMuchToggle: document.getElementById("tooMuchToggle"),
+        lowMaxInput: document.getElementById("lowMaxInput"),
+        mediumMinInput: document.getElementById("mediumMinInput"),
+        mediumMaxInput: document.getElementById("mediumMaxInput"),
+        highMinInput: document.getElementById("highMinInput"),
+        highMaxInput: document.getElementById("highMaxInput"),
+        autoRangesBtn: document.getElementById("autoRangesBtn"),
 
         liveScoreText: document.getElementById("liveScoreText"),
         liveZoneText: document.getElementById("liveZoneText"),
@@ -868,6 +945,10 @@
         data: null,
         rafId: null,
         wakeLock: null,
+        healthTimer: null,
+        lastAudioMovementAt: 0,
+        lastDbForHealth: null,
+        lastHealthMessageAt: 0,
 
         micReady: false,
         running: false,
@@ -897,6 +978,8 @@
         greenLow: 60,
         greenAvgLine: 72,
         greenHigh: 88,
+
+        manualRanges: null,
 
         enableTooMuch: true,
 
@@ -950,6 +1033,20 @@
           if (Number.isFinite(saved.smoothing)) state.smoothing = saved.smoothing;
           if (Number.isFinite(saved.messageMinHoldMs)) state.messageMinHoldMs = saved.messageMinHoldMs;
 
+          if (saved.manualRanges && typeof saved.manualRanges === "object") {
+            const manual = {
+              lowMax: Number(saved.manualRanges.lowMax),
+              mediumMin: Number(saved.manualRanges.mediumMin),
+              mediumMax: Number(saved.manualRanges.mediumMax),
+              highMin: Number(saved.manualRanges.highMin),
+              highMax: Number(saved.manualRanges.highMax)
+            };
+
+            if (isValidManualRanges(manual)) {
+              state.manualRanges = manual;
+            }
+          }
+
           if (typeof saved.enableTooMuch === "boolean") {
             state.enableTooMuch = saved.enableTooMuch;
           }
@@ -969,6 +1066,7 @@
           amberStd: state.amberStd,
           greenAvg: state.greenAvg,
           greenStd: state.greenStd,
+          manualRanges: state.manualRanges,
           rangeWidth: state.rangeWidth,
           smoothing: state.smoothing,
           messageMinHoldMs: state.messageMinHoldMs,
@@ -979,7 +1077,11 @@
       }
 
       async function startMic() {
-        if (state.micReady) return true;
+        if (state.micReady && hasLiveMicTrack()) {
+          await resumeAudioContext();
+          requestWakeLock();
+          return true;
+        }
 
         if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
           setMicStatus("This browser does not support microphone access.");
@@ -1018,6 +1120,11 @@
           state.analyser = analyser;
           state.data = new Uint8Array(analyser.fftSize);
           state.micReady = true;
+          state.lastAudioMovementAt = performance.now();
+          state.lastDbForHealth = null;
+
+          attachMicTrackHandlers();
+          startMicHealthWatch();
 
           setMicStatus("Microphone active. Train Silent, Amber, and Green.");
           startLoop();
@@ -1063,6 +1170,12 @@
         const score = Math.pow(clamp(linear, 0, 1), 0.72) * 100;
 
         state.rawRms = rms;
+        const now = performance.now();
+        if (state.lastDbForHealth === null || Math.abs(clampedDb - state.lastDbForHealth) > 0.04) {
+          state.lastAudioMovementAt = now;
+          state.lastDbForHealth = clampedDb;
+        }
+
         state.db = clampedDb;
         state.instantScore = score;
 
@@ -1186,6 +1299,7 @@
         state.greenLow = clamp(greenAvg - width, 0, 100);
         state.greenHigh = clamp(greenAvg + width, state.greenLow + 1, 100);
 
+        applyManualRangesIfPresent();
         updateRangeVisual();
       }
 
@@ -1486,6 +1600,7 @@
         els.smoothValueText.textContent = String(Math.round(state.smoothing * 100));
         els.holdValueText.textContent = String(state.messageMinHoldMs);
         els.tooMuchToggle.checked = state.enableTooMuch;
+        updateManualRangeInputs();
 
         els.silentAvgText.textContent =
           Number.isFinite(state.silentAvg) ? state.silentAvg.toFixed(1) : "Not set";
@@ -1584,6 +1699,7 @@
         state.amberStd = null;
         state.greenAvg = null;
         state.greenStd = null;
+        state.manualRanges = null;
 
         localStorage.removeItem(STORAGE_KEY);
 
@@ -1605,6 +1721,7 @@
         });
 
         els.micBtn.addEventListener("click", startMic);
+        els.reconnectMicBtn.addEventListener("click", reconnectMic);
         els.testBtn.addEventListener("click", testMode);
 
         els.trainSilentBtn.addEventListener("click", () => train("silent"));
@@ -1646,15 +1763,246 @@
           updateTrainingText();
         });
 
+        [
+          els.lowMaxInput,
+          els.mediumMinInput,
+          els.mediumMaxInput,
+          els.highMinInput,
+          els.highMaxInput
+        ].forEach(input => {
+          input.addEventListener("change", saveManualRangesFromInputs);
+          input.addEventListener("blur", saveManualRangesFromInputs);
+        });
+
+        els.autoRangesBtn.addEventListener("click", () => {
+          state.manualRanges = null;
+          recalcRanges();
+          resetZoneStability();
+          saveState();
+          updateTrainingText();
+          setMicStatus("Manual ranges cleared. Using trained ranges again.");
+        });
+
+        ["pointerdown", "touchstart", "click"].forEach(eventName => {
+          document.addEventListener(eventName, resumeAudioContext, { passive: true });
+        });
+
         document.addEventListener("visibilitychange", () => {
           if (document.visibilityState === "visible") {
             requestWakeLock();
-
-            if (state.audioContext && state.audioContext.state === "suspended") {
-              state.audioContext.resume().catch(() => {});
-            }
+            resumeAudioContext();
+            checkMicHealth(true);
+          } else if (state.micReady) {
+            setMicStatus("Page is not visible. Keep the clap meter in the foreground to protect mic capture.");
           }
         });
+
+        window.addEventListener("pageshow", () => {
+          requestWakeLock();
+          resumeAudioContext();
+          checkMicHealth(true);
+        });
+
+        window.addEventListener("focus", () => {
+          requestWakeLock();
+          resumeAudioContext();
+          checkMicHealth(true);
+        });
+      }
+
+
+      async function reconnectMic() {
+        stopCurrentMicStream();
+        state.micReady = false;
+        state.audioContext = null;
+        state.analyser = null;
+        state.data = null;
+        state.lastDbForHealth = null;
+        state.lastAudioMovementAt = 0;
+
+        setMicStatus("Reconnecting microphone...");
+        await startMic();
+      }
+
+      function stopCurrentMicStream() {
+        if (state.stream) {
+          state.stream.getTracks().forEach(track => {
+            try { track.stop(); } catch (_) {}
+          });
+        }
+
+        if (state.audioContext) {
+          try { state.audioContext.close(); } catch (_) {}
+        }
+
+        state.stream = null;
+      }
+
+      function hasLiveMicTrack() {
+        const track = state.stream && state.stream.getAudioTracks && state.stream.getAudioTracks()[0];
+        return Boolean(track && track.readyState === "live" && !track.muted);
+      }
+
+      function attachMicTrackHandlers() {
+        const track = state.stream && state.stream.getAudioTracks && state.stream.getAudioTracks()[0];
+        if (!track) return;
+
+        track.onmute = () => {
+          state.micReady = false;
+          setMicStatus("Microphone was muted by the browser/iPadOS. Tap Reconnect Mic.");
+        };
+
+        track.onended = () => {
+          state.micReady = false;
+          setMicStatus("Microphone stopped. Tap Reconnect Mic.");
+        };
+
+        track.onunmute = () => {
+          state.micReady = true;
+          setMicStatus("Microphone active again.");
+        };
+      }
+
+      function startMicHealthWatch() {
+        if (state.healthTimer) return;
+
+        state.healthTimer = setInterval(() => {
+          checkMicHealth(false);
+        }, 3000);
+      }
+
+      async function checkMicHealth(forceMessage) {
+        if (!state.stream && !state.audioContext) return;
+
+        const now = performance.now();
+        await resumeAudioContext();
+
+        const track = state.stream && state.stream.getAudioTracks && state.stream.getAudioTracks()[0];
+
+        if (!track || track.readyState !== "live") {
+          state.micReady = false;
+          setMicHealthMessage("Microphone is not live. Tap Reconnect Mic.", forceMessage);
+          return;
+        }
+
+        if (track.muted) {
+          state.micReady = false;
+          setMicHealthMessage("Microphone appears muted by iPadOS/browser. Tap Reconnect Mic.", forceMessage);
+          return;
+        }
+
+        state.micReady = true;
+
+        if ((state.running || state.testMode || state.training) && state.lastAudioMovementAt) {
+          const noMovementMs = now - state.lastAudioMovementAt;
+
+          if (noMovementMs > 22000) {
+            setMicHealthMessage(
+              "Mic is live, but audio looks frozen or the room is completely silent. Clap once near the iPad; reconnect if this stays unchanged.",
+              forceMessage
+            );
+            return;
+          }
+        }
+
+        if (forceMessage || now - state.lastHealthMessageAt > 18000) {
+          setMicHealthMessage("Microphone active. Keep this page open and the screen awake.", forceMessage);
+        }
+      }
+
+      function setMicHealthMessage(text, forceMessage) {
+        const now = performance.now();
+
+        if (forceMessage || now - state.lastHealthMessageAt > 6000 || els.micStatus.textContent !== text) {
+          state.lastHealthMessageAt = now;
+          setMicStatus(text);
+        }
+      }
+
+      async function resumeAudioContext() {
+        if (!state.audioContext) return;
+
+        try {
+          if (state.audioContext.state === "suspended") {
+            await state.audioContext.resume();
+          }
+        } catch (_) {
+          setMicHealthMessage("Audio engine was suspended. Tap Reconnect Mic if the meter does not move.", true);
+        }
+      }
+
+      function applyManualRangesIfPresent() {
+        if (!isValidManualRanges(state.manualRanges)) return;
+
+        state.amberLow = state.manualRanges.mediumMin;
+        state.amberHigh = state.manualRanges.mediumMax;
+        state.greenAvgLine = state.manualRanges.highMin;
+        state.greenLow = state.manualRanges.highMin;
+        state.greenHigh = state.manualRanges.highMax;
+        state.silentHigh = state.manualRanges.lowMax;
+      }
+
+      function saveManualRangesFromInputs() {
+        const manual = {
+          lowMax: Number(els.lowMaxInput.value),
+          mediumMin: Number(els.mediumMinInput.value),
+          mediumMax: Number(els.mediumMaxInput.value),
+          highMin: Number(els.highMinInput.value),
+          highMax: Number(els.highMaxInput.value)
+        };
+
+        if (!isValidManualRanges(manual)) {
+          setMicStatus("Manual ranges not saved. Use ascending values between 0 and 100: Low end ≤ Medium start ≤ Medium end ≤ High start ≤ High max.");
+          updateManualRangeInputs();
+          return;
+        }
+
+        state.manualRanges = manual;
+        recalcRanges();
+        resetZoneStability();
+        saveState();
+        updateTrainingText();
+        setMicStatus("Manual loudness ranges saved on this device.");
+      }
+
+      function updateManualRangeInputs() {
+        const values = isValidManualRanges(state.manualRanges)
+          ? state.manualRanges
+          : {
+              lowMax: state.silentHigh,
+              mediumMin: state.amberLow,
+              mediumMax: state.amberHigh,
+              highMin: state.greenAvgLine,
+              highMax: state.greenHigh
+            };
+
+        els.lowMaxInput.value = String(Math.round(values.lowMax));
+        els.mediumMinInput.value = String(Math.round(values.mediumMin));
+        els.mediumMaxInput.value = String(Math.round(values.mediumMax));
+        els.highMinInput.value = String(Math.round(values.highMin));
+        els.highMaxInput.value = String(Math.round(values.highMax));
+      }
+
+      function isValidManualRanges(manual) {
+        if (!manual || typeof manual !== "object") return false;
+
+        const values = [
+          manual.lowMax,
+          manual.mediumMin,
+          manual.mediumMax,
+          manual.highMin,
+          manual.highMax
+        ];
+
+        if (!values.every(Number.isFinite)) return false;
+        if (!values.every(value => value >= 0 && value <= 100)) return false;
+
+        return (
+          manual.lowMax <= manual.mediumMin &&
+          manual.mediumMin <= manual.mediumMax &&
+          manual.mediumMax <= manual.highMin &&
+          manual.highMin <= manual.highMax
+        );
       }
 
       async function requestFullscreen() {
